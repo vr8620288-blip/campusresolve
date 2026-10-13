@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>CampusResolve</title>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script>
+  if (Session.isLoggedIn()) {
+    window.location.href = "dashboard.html";
+  } else {
+    window.location.href = "login.html";
+  }
+</script>
+</head>
+<body></body>
+</html>

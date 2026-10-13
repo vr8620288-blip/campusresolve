@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Assigned Complaints · CampusResolve</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+  Session.requireRole("STAFF");
+  const content = renderShell({ title: "Assigned Complaints", activeHref: "staff.html" });
+
+  content.innerHTML = `
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Search by title, ref, location…" />
+      <select id="status-filter">
+        <option value="">All Statuses</option>
+        <option value="ASSIGNED">Assigned</option>
+        <option value="IN_PROGRESS">In Progress</option>
+        <option value="RESOLVED">Resolved</option>
+        <option value="CLOSED">Closed</option>
+        <option value="REOPENED">Reopened</option>
+      </select>
+      <select id="priority-filter">
+        <option value="">All Priorities</option>
+        <option value="LOW">Low</option>
+        <option value="MEDIUM">Medium</option>
+        <option value="HIGH">High</option>
+        <option value="CRITICAL">Critical</option>
+      </select>
+      <select id="sort">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="priority">Highest priority</option>
+        <option value="updated">Recently updated</option>
+      </select>
+    </div>
+    <div class="card"><div id="list-root" class="loading-state"><div class="spinner"></div>Loading…</div></div>
+  `;
+
+  async function loadList() {
+    const root = document.getElementById("list-root");
+    root.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading…</div>';
+    try {
+      const params = {
+        search: document.getElementById("search").value.trim(),
+        status: document.getElementById("status-filter").value,
+        priority: document.getElementById("priority-filter").value,
+        sort: document.getElementById("sort").value,
+        page_size: 50,
+      };
+      const data = await Api.listComplaints(params);
+      if (!data.items.length) {
+        root.innerHTML = '<div class="empty-state">No complaints assigned to you yet.</div>';
+        return;
+      }
+      root.innerHTML = `
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Ref</th><th>Title</th><th>Student</th><th>Location</th><th>Priority</th><th>Status</th><th>Due</th></tr></thead>
+          <tbody>
+            ${data.items
+              .map(
+                (c) => `
+              <tr class="clickable" onclick="window.location.href='complaint-details.html?id=${c.id}'">
+                <td>${c.reference_code}</td>
+                <td>${escapeHtml(c.title)}</td>
+                <td>${escapeHtml(c.student_name || "-")}</td>
+                <td>${escapeHtml(c.location)}</td>
+                <td><span class="badge badge-${c.priority}">${c.priority}</span></td>
+                <td><span class="badge badge-${c.status}">${statusLabel(c.status)}</span>${c.is_overdue ? ' <span class="badge badge-overdue">Overdue</span>' : ""}</td>
+                <td>${formatDate(c.due_at)}</td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+        </div>`;
+    } catch (err) {
+      root.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  ["search", "status-filter", "priority-filter", "sort"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", loadList);
+  });
+  document.getElementById("search").addEventListener("keyup", (e) => { if (e.key === "Enter") loadList(); });
+
+  loadList();
+</script>
+</body>
+</html>

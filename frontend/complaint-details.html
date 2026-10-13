@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Complaint Details · CampusResolve</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+  Session.requireAuth();
+  const content = renderShell({ title: "Complaint Details", activeHref: Session.role() === "STUDENT" ? "complaints.html" : Session.role() === "STAFF" ? "staff.html" : "admin.html" });
+
+  const params = new URLSearchParams(window.location.search);
+  const complaintId = params.get("id");
+  if (!complaintId) {
+    content.innerHTML = '<div class="error-state">No complaint specified.</div>';
+  }
+
+  let staffList = [];
+
+  async function load() {
+    content.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading…</div>';
+    try {
+      const c = await Api.getComplaint(complaintId);
+      render(c);
+    } catch (err) {
+      content.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function actionButtons(c) {
+    const role = Session.role();
+    let html = "";
+
+    if (role === "ADMIN") {
+      html += `
+        <div class="form-group">
+          <label>Assign / Reassign Staff</label>
+          <select id="assign-staff">
+            <option value="">Select staff…</option>
+            ${staffList.map((s) => `<option value="${s.id}" ${s.id === c.assigned_staff_id ? "selected" : ""}>${escapeHtml(s.full_name)}</option>`).join("")}
+          </select>
+          <button class="btn btn-primary btn-sm" style="margin-top:8px;" id="assign-btn">${c.assigned_staff_id ? "Reassign" : "Assign"}</button>
+        </div>`;
+    }
+
+    if (role === "STAFF" || role === "ADMIN") {
+      if (!["CLOSED"].includes(c.status)) {
+        html += `
+          <div class="form-group">
+            <label>Update Status</label>
+            <select id="status-select">
+              ${["ASSIGNED", "IN_PROGRESS", "RESOLVED"].map((s) => `<option value="${s}" ${c.status === s ? "selected" : ""}>${statusLabel(s)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Resolution Note (required when marking Resolved)</label>
+            <textarea id="resolution-note" placeholder="Describe how the issue was resolved…">${c.resolution_note || ""}</textarea>
+          </div>
+          <button class="btn btn-primary btn-sm" id="status-btn">Update Status</button>`;
+      }
+    }
+
+    if (role === "STUDENT") {
+      if (c.status === "RESOLVED") {
+        html += `<button class="btn btn-primary btn-sm" id="confirm-btn">✓ Confirm Resolution</button>
+                 <button class="btn btn-outline btn-sm" id="reopen-btn" style="margin-left:8px;">Reopen — Issue Persists</button>`;
+      } else if (c.status === "CLOSED" && !c.student_confirmed) {
+        // closed without confirmation flow edge-case guard (not expected, but safe)
+      }
+    }
+    return html;
+  }
+
+  function render(c) {
+    content.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px;">
+        <div>
+          <h2 style="margin:0 0 4px;">${escapeHtml(c.title)}</h2>
+          <div style="color:var(--text-muted); font-size:0.85rem;">${c.reference_code} · Submitted ${formatDate(c.created_at)}</div>
+        </div>
+        <div>
+          <span class="badge badge-${c.priority}">${c.priority}</span>
+          <span class="badge badge-${c.status}">${statusLabel(c.status)}</span>
+          ${c.is_overdue ? '<span class="badge badge-overdue">Overdue</span>' : ""}
+        </div>
+      </div>
+
+      <div class="two-col" style="margin-top:18px;">
+        <div>
+          <div class="card">
+            <div class="section-title" style="margin-top:0;">Description</div>
+            <p>${escapeHtml(c.description)}</p>
+            <div class="grid grid-2">
+              <div><div class="stat-label">Category</div><div>${escapeHtml(c.category_name || "-")}</div></div>
+              <div><div class="stat-label">Location</div><div>${escapeHtml(c.location)}</div></div>
+              <div><div class="stat-label">Department</div><div>${escapeHtml(c.department_name || "Not yet routed")}</div></div>
+              <div><div class="stat-label">Assigned Staff</div><div>${escapeHtml(c.assigned_staff_name || "Unassigned")}</div></div>
+              <div><div class="stat-label">Due By (SLA)</div><div>${formatDate(c.due_at)}</div></div>
+              <div><div class="stat-label">Submitted By</div><div>${escapeHtml(c.student_name || "-")}</div></div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <div class="section-title" style="margin-top:0;">Attachments</div>
+            <div id="attachments-list">
+              ${
+                c.attachments.length
+                  ? c.attachments
+                      .map(
+                        (a) => `<div style="padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem;">📎 ${escapeHtml(a.file_name)} <span style="color:var(--text-muted);">(${(a.size_bytes / 1024).toFixed(0)} KB, ${a.kind})</span></div>`
+                      )
+                      .join("")
+                  : '<div class="empty-state">No attachments yet.</div>'
+              }
+            </div>
+            <div style="margin-top:10px;">
+              <input type="file" id="attach-file" accept=".jpg,.jpeg,.png,.pdf" />
+              <button class="btn btn-secondary btn-sm" id="attach-btn" style="margin-top:6px;">Upload Evidence</button>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <div class="section-title" style="margin-top:0;">Comments</div>
+            <div id="comments-list">
+              ${
+                c.comments.length
+                  ? c.comments
+                      .map(
+                        (cm) => `<div class="comment"><div class="c-head">${escapeHtml(cm.author_name || "User")}</div><div class="c-meta">${formatDate(cm.created_at)}</div><div class="c-body">${escapeHtml(cm.message)}</div></div>`
+                      )
+                      .join("")
+                  : '<div class="empty-state">No comments yet.</div>'
+              }
+            </div>
+            <div class="form-group" style="margin-top:12px;">
+              <textarea id="comment-input" placeholder="Add a comment…"></textarea>
+              <button class="btn btn-secondary btn-sm" id="comment-btn" style="margin-top:6px;">Post Comment</button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <div class="section-title" style="margin-top:0;">Actions</div>
+            ${actionButtons(c) || '<div class="empty-state">No actions available.</div>'}
+          </div>
+          <div class="card" style="margin-top:16px;">
+            <div class="section-title" style="margin-top:0;">Status Timeline</div>
+            <ul class="timeline">
+              ${c.history
+                .map(
+                  (h) => `<li><div class="t-status">${statusLabel(h.to_status)}</div><div class="t-meta">${formatDate(h.created_at)}${h.changed_by_name ? " · " + escapeHtml(h.changed_by_name) : ""}</div>${h.note ? `<div class="t-note">${escapeHtml(h.note)}</div>` : ""}</li>`
+                )
+                .join("")}
+            </ul>
+          </div>
+        </div>
+      </div>
+    `;
+    wireActions(c);
+  }
+
+  function wireActions(c) {
+    const assignBtn = document.getElementById("assign-btn");
+    if (assignBtn) {
+      assignBtn.addEventListener("click", async () => {
+        const staffId = document.getElementById("assign-staff").value;
+        if (!staffId) return toast("Select a staff member first", "error");
+        try {
+          await Api.assignComplaint(c.id, parseInt(staffId, 10));
+          toast("Complaint assigned", "success");
+          load();
+        } catch (err) { toast(err.message, "error"); }
+      });
+    }
+
+    const statusBtn = document.getElementById("status-btn");
+    if (statusBtn) {
+      statusBtn.addEventListener("click", async () => {
+        const status = document.getElementById("status-select").value;
+        const resolution_note = document.getElementById("resolution-note").value.trim();
+        if (status === "RESOLVED" && !resolution_note) {
+          return toast("Please add a resolution note before marking resolved", "error");
+        }
+        try {
+          await Api.updateStatus(c.id, { status, resolution_note, note: `Status changed to ${statusLabel(status)}` });
+          toast("Status updated", "success");
+          load();
+        } catch (err) { toast(err.message, "error"); }
+      });
+    }
+
+    const confirmBtn = document.getElementById("confirm-btn");
+    if (confirmBtn) {
+      confirmBtn.addEventListener("click", async () => {
+        try {
+          await Api.confirmResolution(c.id);
+          toast("Resolution confirmed — complaint closed", "success");
+          load();
+        } catch (err) { toast(err.message, "error"); }
+      });
+    }
+
+    const reopenBtn = document.getElementById("reopen-btn");
+    if (reopenBtn) {
+      reopenBtn.addEventListener("click", async () => {
+        const note = prompt("Briefly describe why the issue still persists:") || "Issue still persists";
+        try {
+          await Api.reopenComplaint(c.id, note);
+          toast("Complaint reopened", "success");
+          load();
+        } catch (err) { toast(err.message, "error"); }
+      });
+    }
+
+    document.getElementById("comment-btn").addEventListener("click", async () => {
+      const input = document.getElementById("comment-input");
+      const message = input.value.trim();
+      if (!message) return;
+      try {
+        await Api.addComment(c.id, message);
+        input.value = "";
+        load();
+      } catch (err) { toast(err.message, "error"); }
+    });
+
+    document.getElementById("attach-btn").addEventListener("click", async () => {
+      const file = document.getElementById("attach-file").files[0];
+      if (!file) return toast("Choose a file first", "error");
+      const kind = Session.role() === "STUDENT" ? "evidence" : "resolution";
+      try {
+        await Api.uploadAttachment(c.id, file, kind);
+        toast("File uploaded", "success");
+        load();
+      } catch (err) { toast(err.message, "error"); }
+    });
+  }
+
+  (async () => {
+    if (Session.role() === "ADMIN") {
+      try { staffList = await Api.listStaff(); } catch (e) { /* non-fatal */ }
+    }
+    load();
+  })();
+</script>
+</body>
+</html>

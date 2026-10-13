@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Complaints · CampusResolve</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+  Session.requireRole("STUDENT");
+  const content = renderShell({ title: "My Complaints", activeHref: "complaints.html" });
+
+  content.innerHTML = `
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Search by title, ref, location…" />
+      <select id="status-filter">
+        <option value="">All Statuses</option>
+        <option value="SUBMITTED">Submitted</option>
+        <option value="ASSIGNED">Assigned</option>
+        <option value="IN_PROGRESS">In Progress</option>
+        <option value="RESOLVED">Resolved</option>
+        <option value="CLOSED">Closed</option>
+        <option value="REOPENED">Reopened</option>
+      </select>
+      <select id="priority-filter">
+        <option value="">All Priorities</option>
+        <option value="LOW">Low</option>
+        <option value="MEDIUM">Medium</option>
+        <option value="HIGH">High</option>
+        <option value="CRITICAL">Critical</option>
+      </select>
+      <select id="sort">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="priority">Highest priority</option>
+        <option value="updated">Recently updated</option>
+      </select>
+      <div class="spacer"></div>
+      <button class="btn btn-primary" id="new-btn">+ Submit Complaint</button>
+    </div>
+    <div class="card"><div id="list-root" class="loading-state"><div class="spinner"></div>Loading…</div></div>
+  `;
+
+  let categories = [];
+
+  async function loadList() {
+    const root = document.getElementById("list-root");
+    root.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading…</div>';
+    try {
+      const params = {
+        search: document.getElementById("search").value.trim(),
+        status: document.getElementById("status-filter").value,
+        priority: document.getElementById("priority-filter").value,
+        sort: document.getElementById("sort").value,
+        page_size: 50,
+      };
+      const data = await Api.listComplaints(params);
+      if (!data.items.length) {
+        root.innerHTML = '<div class="empty-state">No complaints found. Try adjusting filters, or submit a new one.</div>';
+        return;
+      }
+      root.innerHTML = `
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Ref</th><th>Title</th><th>Category</th><th>Location</th><th>Priority</th><th>Status</th><th>Date</th></tr></thead>
+          <tbody>
+            ${data.items
+              .map(
+                (c) => `
+              <tr class="clickable" onclick="window.location.href='complaint-details.html?id=${c.id}'">
+                <td>${c.reference_code}</td>
+                <td>${escapeHtml(c.title)}</td>
+                <td>${escapeHtml(c.category_name || "-")}</td>
+                <td>${escapeHtml(c.location)}</td>
+                <td><span class="badge badge-${c.priority}">${c.priority}</span></td>
+                <td><span class="badge badge-${c.status}">${statusLabel(c.status)}</span>${c.is_overdue ? ' <span class="badge badge-overdue">Overdue</span>' : ""}</td>
+                <td>${formatDate(c.created_at)}</td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+        </div>`;
+    } catch (err) {
+      root.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  ["search", "status-filter", "priority-filter", "sort"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", loadList);
+  });
+  document.getElementById("search").addEventListener("keyup", (e) => {
+    if (e.key === "Enter") loadList();
+  });
+
+  function openNewComplaintModal() {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal">
+        <div class="modal-header"><h3>Submit a Complaint</h3><button class="modal-close" id="close-modal">✕</button></div>
+        <div class="modal-body">
+          <div id="modal-error" class="auth-error" style="display:none;"></div>
+          <form id="new-complaint-form">
+            <div class="form-group">
+              <label>Title</label>
+              <input type="text" id="c-title" required placeholder="e.g. Projector not working in Lab 3" />
+            </div>
+            <div class="form-group">
+              <label>Category</label>
+              <select id="c-category" required>${categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}</select>
+            </div>
+            <div class="form-group">
+              <label>Location</label>
+              <input type="text" id="c-location" required placeholder="e.g. Lab 3, CS Block" />
+            </div>
+            <div class="form-group">
+              <label>Priority</label>
+              <select id="c-priority">
+                <option value="LOW">Low</option>
+                <option value="MEDIUM" selected>Medium</option>
+                <option value="HIGH">High</option>
+                <option value="CRITICAL">Critical</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Description</label>
+              <textarea id="c-description" required placeholder="Describe the issue in detail…"></textarea>
+            </div>
+            <div class="form-group">
+              <label>Evidence (optional — JPG, PNG or PDF, max 5MB)</label>
+              <input type="file" id="c-file" accept=".jpg,.jpeg,.png,.pdf" />
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="cancel-modal">Cancel</button>
+          <button class="btn btn-primary" id="submit-complaint-btn">Submit Complaint</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    document.getElementById("close-modal").addEventListener("click", close);
+    document.getElementById("cancel-modal").addEventListener("click", close);
+
+    document.getElementById("submit-complaint-btn").addEventListener("click", async () => {
+      const form = document.getElementById("new-complaint-form");
+      if (!form.reportValidity()) return;
+      const errBox = document.getElementById("modal-error");
+      errBox.style.display = "none";
+      const btn = document.getElementById("submit-complaint-btn");
+      btn.disabled = true;
+      btn.textContent = "Submitting…";
+      try {
+        const payload = {
+          title: document.getElementById("c-title").value.trim(),
+          description: document.getElementById("c-description").value.trim(),
+          location: document.getElementById("c-location").value.trim(),
+          category_id: parseInt(document.getElementById("c-category").value, 10),
+          priority: document.getElementById("c-priority").value,
+        };
+        const complaint = await Api.createComplaint(payload);
+        const file = document.getElementById("c-file").files[0];
+        if (file) {
+          await Api.uploadAttachment(complaint.id, file, "evidence").catch((e) =>
+            toast(`Complaint created, but file upload failed: ${e.message}`, "error")
+          );
+        }
+        toast(`Complaint ${complaint.reference_code} submitted successfully`, "success");
+        close();
+        loadList();
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.style.display = "block";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Submit Complaint";
+      }
+    });
+  }
+
+  document.getElementById("new-btn").addEventListener("click", openNewComplaintModal);
+
+  (async () => {
+    try {
+      categories = await Api.listCategories();
+    } catch (e) { /* non-fatal; categories will be empty in the modal */ }
+    loadList();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("new") === "1") openNewComplaintModal();
+  })();
+</script>
+</body>
+</html>

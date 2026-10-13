@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:15
+    container_name: campusresolve-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: campus_user
+      POSTGRES_PASSWORD: campus_pass
+      POSTGRES_DB: campus_resolve
+    ports:
+      - "5432:5432"
+    volumes:
+      - campusresolve_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campus_user -d campus_resolve"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: campusresolve-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://campus_user:campus_pass@db:5432/campus_resolve
+      JWT_SECRET_KEY: change-this-to-a-long-random-secret-before-production
+      ACCESS_TOKEN_EXPIRE_MINUTES: "480"
+      UPLOAD_DIRECTORY: /app/uploads
+      CORS_ORIGINS: "http://localhost:5500,http://127.0.0.1:5500,*"
+    volumes:
+      - campusresolve_uploads:/app/uploads
+    ports:
+      - "8000:8000"
+
+  frontend:
+    image: nginx:alpine
+    container_name: campusresolve-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "5500:80"
+
+volumes:
+  campusresolve_pgdata:
+  campusresolve_uploads:

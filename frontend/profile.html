@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Profile · CampusResolve</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+  Session.requireAuth();
+  const content = renderShell({ title: "My Profile", activeHref: "profile.html" });
+
+  content.innerHTML = `
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="section-title" style="margin-top:0;">Profile Details</div>
+        <div id="profile-error" class="auth-error" style="display:none;"></div>
+        <div class="form-group"><label>Full Name</label><input id="p-name" /></div>
+        <div class="form-group"><label>Email (not editable)</label><input id="p-email" disabled /></div>
+        <div class="form-group"><label>Phone</label><input id="p-phone" /></div>
+        <button class="btn btn-primary" id="save-profile-btn">Save Changes</button>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0;">Change Password</div>
+        <div id="password-error" class="auth-error" style="display:none;"></div>
+        <div class="form-group"><label>Current Password</label><input id="p-current" type="password" /></div>
+        <div class="form-group"><label>New Password</label><input id="p-new" type="password" minlength="6" /></div>
+        <button class="btn btn-secondary" id="change-password-btn">Change Password</button>
+      </div>
+    </div>
+  `;
+
+  async function load() {
+    try {
+      const me = await Api.getProfile();
+      document.getElementById("p-name").value = me.full_name;
+      document.getElementById("p-email").value = me.email;
+      document.getElementById("p-phone").value = me.phone || "";
+    } catch (err) {
+      document.getElementById("profile-error").textContent = err.message;
+      document.getElementById("profile-error").style.display = "block";
+    }
+  }
+  load();
+
+  document.getElementById("save-profile-btn").addEventListener("click", async () => {
+    const errBox = document.getElementById("profile-error");
+    errBox.style.display = "none";
+    try {
+      await Api.updateProfile({
+        full_name: document.getElementById("p-name").value.trim(),
+        phone: document.getElementById("p-phone").value.trim(),
+      });
+      Session.save(Session.token(), Session.role(), document.getElementById("p-name").value.trim());
+      toast("Profile updated", "success");
+    } catch (err) {
+      errBox.textContent = err.message;
+      errBox.style.display = "block";
+    }
+  });
+
+  document.getElementById("change-password-btn").addEventListener("click", async () => {
+    const errBox = document.getElementById("password-error");
+    errBox.style.display = "none";
+    try {
+      await Api.changePassword({
+        current_password: document.getElementById("p-current").value,
+        new_password: document.getElementById("p-new").value,
+      });
+      toast("Password changed successfully", "success");
+      document.getElementById("p-current").value = "";
+      document.getElementById("p-new").value = "";
+    } catch (err) {
+      errBox.textContent = err.message;
+      errBox.style.display = "block";
+    }
+  });
+</script>
+</body>
+</html>

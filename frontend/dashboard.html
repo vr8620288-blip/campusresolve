@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard · CampusResolve</title>
+<link rel="stylesheet" href="css/style.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+</head>
+<body>
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+  Session.requireAuth();
+  const content = renderShell({ title: "Dashboard", activeHref: "dashboard.html" });
+  content.innerHTML = `
+    <div id="dash-root" class="loading-state"><div class="spinner"></div>Loading dashboard…</div>
+  `;
+
+  function statCard(label, value, accent = "") {
+    return `<div class="card stat-card ${accent}"><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
+  }
+
+  function recentTable(items) {
+    if (!items.length) return '<div class="empty-state">No complaints yet.</div>';
+    return `
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Ref</th><th>Title</th><th>Category</th><th>Priority</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>
+          ${items
+            .map(
+              (c) => `
+            <tr class="clickable" onclick="window.location.href='complaint-details.html?id=${c.id}'">
+              <td>${c.reference_code}</td>
+              <td>${escapeHtml(c.title)}</td>
+              <td>${escapeHtml(c.category_name || "-")}</td>
+              <td><span class="badge badge-${c.priority}">${c.priority}</span></td>
+              <td><span class="badge badge-${c.status}">${statusLabel(c.status)}</span>${c.is_overdue ? ' <span class="badge badge-overdue">Overdue</span>' : ""}</td>
+              <td>${formatDate(c.created_at)}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+      </div>`;
+  }
+
+  async function loadStudent() {
+    const d = await Api.studentDashboard();
+    content.querySelector("#dash-root").outerHTML = `
+      <div id="dash-root">
+        <div class="grid grid-4">
+          ${statCard("Total Complaints", d.total)}
+          ${statCard("Submitted / Pending", d.submitted, "accent-amber")}
+          ${statCard("In Progress", d.in_progress, "accent-teal")}
+          ${statCard("Resolved", d.resolved, "accent-green")}
+        </div>
+        <div class="grid grid-2" style="margin-top:16px;">
+          <div class="card"><canvas id="statusChart" height="220"></canvas></div>
+          <div class="card">
+            <div class="stat-label" style="margin-bottom:10px;">At a glance</div>
+            <p style="margin:4px 0;">Closed: <strong>${d.closed}</strong></p>
+            <p style="margin:4px 0;">Reopened: <strong>${d.reopened}</strong></p>
+            <a class="btn btn-primary btn-sm" href="complaints.html?new=1" style="margin-top:10px;">Submit a new complaint</a>
+          </div>
+        </div>
+        <div class="section-title">Recent Complaints</div>
+        <div class="card">${recentTable(d.recent)}</div>
+      </div>`;
+    new Chart(document.getElementById("statusChart"), {
+      type: "bar",
+      data: {
+        labels: ["Submitted", "In Progress", "Resolved", "Closed", "Reopened"],
+        datasets: [{ label: "Complaints", data: [d.submitted, d.in_progress, d.resolved, d.closed, d.reopened],
+          backgroundColor: ["#35496b", "#91650b", "#1e7d45", "#777", "#a52d2d"] }],
+      },
+      options: { plugins: { legend: { display: false } }, responsive: true },
+    });
+  }
+
+  async function loadStaff() {
+    const d = await Api.staffDashboard();
+    content.querySelector("#dash-root").outerHTML = `
+      <div id="dash-root">
+        <div class="grid grid-4">
+          ${statCard("Assigned to Me", d.assigned)}
+          ${statCard("Pending", d.pending, "accent-amber")}
+          ${statCard("In Progress", d.in_progress, "accent-teal")}
+          ${statCard("Overdue", d.overdue, "accent-red")}
+        </div>
+        <div class="grid grid-2" style="margin-top:16px;">
+          <div class="card"><canvas id="statusChart" height="220"></canvas></div>
+          <div class="card">
+            <div class="stat-label" style="margin-bottom:10px;">At a glance</div>
+            <p style="margin:4px 0;">Resolved / Closed: <strong>${d.resolved}</strong></p>
+            <p style="margin:4px 0;">Critical (open): <strong>${d.critical}</strong></p>
+            <a class="btn btn-primary btn-sm" href="staff.html" style="margin-top:10px;">View assigned complaints</a>
+          </div>
+        </div>
+        <div class="section-title">Recently Updated</div>
+        <div class="card">${recentTable(d.recent)}</div>
+      </div>`;
+    new Chart(document.getElementById("statusChart"), {
+      type: "doughnut",
+      data: {
+        labels: ["Pending", "In Progress", "Resolved/Closed"],
+        datasets: [{ data: [d.pending, d.in_progress, d.resolved], backgroundColor: ["#91650b", "#0f8b8d", "#1e7d45"] }],
+      },
+    });
+  }
+
+  async function loadAdmin() {
+    const d = await Api.adminDashboard();
+    content.querySelector("#dash-root").outerHTML = `
+      <div id="dash-root">
+        <div class="grid grid-4">
+          ${statCard("Total Complaints", d.total)}
+          ${statCard("Pending", d.pending, "accent-amber")}
+          ${statCard("In Progress", d.in_progress, "accent-teal")}
+          ${statCard("Overdue", d.overdue, "accent-red")}
+        </div>
+        <div class="grid grid-4" style="margin-top:16px;">
+          ${statCard("Assigned", d.assigned)}
+          ${statCard("Resolved", d.resolved, "accent-green")}
+          ${statCard("Closed", d.closed)}
+          ${statCard("Critical (open)", d.critical, "accent-red")}
+        </div>
+        <div class="grid grid-2" style="margin-top:16px;">
+          <div class="card"><div class="stat-label">By Status</div><canvas id="statusChart"></canvas></div>
+          <div class="card"><div class="stat-label">By Priority</div><canvas id="priorityChart"></canvas></div>
+        </div>
+        <div class="grid grid-2" style="margin-top:16px;">
+          <div class="card"><div class="stat-label">By Category</div><canvas id="categoryChart"></canvas></div>
+          <div class="card"><div class="stat-label">Monthly Trend</div><canvas id="trendChart"></canvas></div>
+        </div>
+        <div class="section-title">Staff Workload</div>
+        <div class="card">
+          ${
+            d.staff_workload.length
+              ? `<table><thead><tr><th>Staff</th><th>Open</th><th>Resolved/Closed</th></tr></thead><tbody>${d.staff_workload
+                  .map((s) => `<tr><td>${escapeHtml(s.staff_name)}</td><td>${s.open_count}</td><td>${s.resolved_count}</td></tr>`)
+                  .join("")}</tbody></table>`
+              : '<div class="empty-state">No staff workload data yet.</div>'
+          }
+        </div>
+      </div>`;
+
+    new Chart(document.getElementById("statusChart"), {
+      type: "bar",
+      data: { labels: d.by_status.map((s) => statusLabel(s.status)), datasets: [{ data: d.by_status.map((s) => s.count), backgroundColor: "#0f8b8d" }] },
+      options: { plugins: { legend: { display: false } } },
+    });
+    new Chart(document.getElementById("priorityChart"), {
+      type: "doughnut",
+      data: { labels: d.by_priority.map((s) => s.priority), datasets: [{ data: d.by_priority.map((s) => s.count), backgroundColor: ["#35496b", "#91650b", "#b5480c", "#a52d2d"] }] },
+    });
+    new Chart(document.getElementById("categoryChart"), {
+      type: "bar",
+      data: { labels: d.by_category.map((s) => s.category), datasets: [{ data: d.by_category.map((s) => s.count), backgroundColor: "#10243e" }] },
+      options: { indexAxis: "y", plugins: { legend: { display: false } } },
+    });
+    new Chart(document.getElementById("trendChart"), {
+      type: "line",
+      data: { labels: d.monthly_trend.map((s) => s.month), datasets: [{ label: "Complaints", data: d.monthly_trend.map((s) => s.count), borderColor: "#0f8b8d", tension: 0.3 }] },
+    });
+  }
+
+  (async () => {
+    try {
+      const role = Session.role();
+      if (role === "STUDENT") await loadStudent();
+      else if (role === "STAFF") await loadStaff();
+      else if (role === "ADMIN") await loadAdmin();
+    } catch (err) {
+      content.querySelector("#dash-root").innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+    }
+  })();
+</script>
+</body>
+</html>

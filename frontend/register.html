@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Register · CampusResolve</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card" style="max-width:460px;">
+    <div class="auth-brand">
+      <div class="logo-dot">CR</div>
+      <h2>Create Student Account</h2>
+      <p>Join CampusResolve to report campus issues</p>
+    </div>
+
+    <div id="error-box" class="auth-error" style="display:none;"></div>
+
+    <form id="register-form">
+      <div class="form-group">
+        <label for="full_name">Full Name</label>
+        <input type="text" id="full_name" required />
+      </div>
+      <div class="form-group">
+        <label for="student_id">Student ID</label>
+        <input type="text" id="student_id" required />
+      </div>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" required />
+      </div>
+      <div class="form-group">
+        <label for="phone">Phone</label>
+        <input type="tel" id="phone" />
+      </div>
+      <div class="form-group">
+        <label for="department_id">Department</label>
+        <select id="department_id"><option value="">Select department (optional)</option></select>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" required minlength="6" />
+        <div class="helper-text">Minimum 6 characters.</div>
+      </div>
+      <div class="form-group">
+        <label for="confirm_password">Confirm Password</label>
+        <input type="password" id="confirm_password" required minlength="6" />
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="submit-btn">Create Account</button>
+    </form>
+
+    <div class="auth-footer">
+      Already have an account? <a href="login.html">Login</a>
+    </div>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script>
+  if (Session.isLoggedIn()) window.location.href = "dashboard.html";
+
+  (async () => {
+    try {
+      // Departments require auth normally, but registration happens pre-auth.
+      // We degrade gracefully: if the call fails (401), leave the optional dropdown empty.
+      const sel = document.getElementById("department_id");
+      const depts = await fetch(`${window.CAMPUS_RESOLVE_API_BASE || "http://localhost:8000"}/api/departments`)
+        .then((r) => (r.status === 401 ? [] : r.json()))
+        .catch(() => []);
+      depts.forEach((d) => {
+        const opt = document.createElement("option");
+        opt.value = d.id;
+        opt.textContent = d.name;
+        sel.appendChild(opt);
+      });
+    } catch (e) { /* non-fatal */ }
+  })();
+
+  document.getElementById("register-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorBox = document.getElementById("error-box");
+    const submitBtn = document.getElementById("submit-btn");
+    errorBox.style.display = "none";
+
+    const password = document.getElementById("password").value;
+    const confirm_password = document.getElementById("confirm_password").value;
+    if (password !== confirm_password) {
+      errorBox.textContent = "Passwords do not match.";
+      errorBox.style.display = "block";
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Creating account…";
+    try {
+      const deptVal = document.getElementById("department_id").value;
+      const payload = {
+        full_name: document.getElementById("full_name").value.trim(),
+        student_id: document.getElementById("student_id").value.trim(),
+        email: document.getElementById("email").value.trim(),
+        phone: document.getElementById("phone").value.trim() || null,
+        department_id: deptVal ? parseInt(deptVal, 10) : null,
+        password,
+        confirm_password,
+      };
+      const data = await Api.register(payload);
+      Session.save(data.access_token, data.role, data.full_name);
+      window.location.href = "dashboard.html";
+    } catch (err) {
+      errorBox.textContent = err.message || "Registration failed.";
+      errorBox.style.display = "block";
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Create Account";
+    }
+  });
+</script>
+</body>
+</html>
